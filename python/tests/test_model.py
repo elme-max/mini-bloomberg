@@ -62,6 +62,6 @@ def test_format_report_contains_key_sections():
     report = model.analyze_snapshot(snapshot)
     text = format_report(report)
     assert "MSFT" in text
-    assert "Overall:" in text
+    assert "OVERALL SCORE:" in text
     assert "Revenue Growth" in text
-    assert "[DEMO DATA]" in text
+    assert "[DEMO DATA" in text

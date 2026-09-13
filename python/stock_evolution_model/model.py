@@ -5,7 +5,7 @@ from __future__ import annotations
 from . import scoring
 from .fetch import fetch_fundamentals
 from .metrics import compute_quarter_metrics
-from .types import EvolutionReport, FundamentalsSnapshot
+from .types import CategoryResult, EvolutionReport, FundamentalsSnapshot
 
 DEFAULT_WEIGHTS = {
     "Revenue Growth": 0.20,
@@ -70,16 +70,60 @@ class StockEvolutionModel:
         )
 
 
+TREND_ICON = {"Improving": "^", "Stable": "-", "Deteriorating": "v"}
+
+# Which metrics to surface as headline numbers under each category, and how
+# to render them. (label, metrics_key, suffix) - suffix "%" appends a
+# percent sign, "" prints the raw number.
+_HEADLINE_METRICS: dict[str, list[tuple[str, str, str]]] = {
+    "Revenue Growth": [("Growth (latest qtr)", "latest_growth_pct", "%")],
+    "Profitability": [
+        ("Net margin", "latest_net_margin_pct", "%"),
+        ("ROE", "latest_roe_pct", "%"),
+    ],
+    "Valuation": [
+        ("Trailing P/E", "trailing_pe", "x"),
+        ("PEG ratio", "peg_ratio", ""),
+        ("Price/Sales", "price_to_sales", "x"),
+    ],
+    "Debt Levels": [
+        ("Debt/Equity", "latest_debt_to_equity", ""),
+        ("Current ratio", "latest_current_ratio", ""),
+    ],
+    "Cash Flow Trends": [("FCF margin", "latest_fcf_margin_pct", "%")],
+}
+
+
+def _format_headline(category: CategoryResult) -> str:
+    parts = []
+    for label, key, suffix in _HEADLINE_METRICS.get(category.name, []):
+        value = category.metrics.get(key)
+        if value is None:
+            parts.append(f"{label}: n/a")
+        elif suffix == "%":
+            parts.append(f"{label}: {value:+.1f}%")
+        elif suffix == "x":
+            parts.append(f"{label}: {value:.1f}x")
+        else:
+            parts.append(f"{label}: {value:.2f}")
+    return "  |  ".join(parts)
+
+
 def format_report(report: EvolutionReport) -> str:
     lines = [
         f"{report.company_name} ({report.symbol})",
-        f"Overall: {report.overall_score:.1f}/100  Grade: {report.overall_grade}  "
-        f"Trend: {report.overall_trend}",
+        f"OVERALL SCORE: {report.overall_score:.1f}/100 (Grade {report.overall_grade})  "
+        f"-  Trend: {report.overall_trend}",
     ]
     if report.is_demo_data:
-        lines.append(f"[DEMO DATA] {'; '.join(report.data_notes)}")
+        lines.append(f"[DEMO DATA - not real market data] {'; '.join(report.data_notes)}")
     lines.append("")
     for c in report.categories:
-        lines.append(f"- {c.name}: {c.score:.1f}/100 ({c.grade}), {c.trend}")
-        lines.append(f"    {c.detail}")
-    return "\n".join(lines)
+        icon = TREND_ICON.get(c.trend, "-")
+        lines.append(f"[{c.grade}] {c.name}: {c.score:.0f}/100  ({icon} {c.trend})")
+        headline = _format_headline(c)
+        if headline:
+            lines.append(f"      {headline}")
+        lines.append(f"      how it's scored: {c.detail}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
