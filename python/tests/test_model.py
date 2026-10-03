@@ -2,6 +2,7 @@ import pytest
 
 from stock_evolution_model import StockEvolutionModel, format_report
 from stock_evolution_model.demo_data import generate_demo_fundamentals
+from stock_evolution_model.fetch import DataUnavailableError
 
 
 def test_analyze_snapshot_produces_full_report():
@@ -24,18 +25,21 @@ def test_analyze_snapshot_produces_full_report():
     assert report.overall_trend in ("Improving", "Stable", "Deteriorating")
 
 
-def test_analyze_falls_back_to_demo_data_without_network(monkeypatch):
-    # Force the fetch used by the model to return demo data, so this test
-    # exercises the fallback path regardless of network/yfinance availability.
-    import stock_evolution_model.model as model_module
+def test_analyze_raises_when_live_data_unavailable(monkeypatch):
+    import stock_evolution_model.fetch as fetch_module
 
-    def boom(symbol):
-        return generate_demo_fundamentals(symbol, reason="forced for test")
+    monkeypatch.setattr(fetch_module, "yf", None)  # simulate yfinance not installed
 
-    monkeypatch.setattr(model_module, "fetch_fundamentals", boom)
+    with pytest.raises(DataUnavailableError):
+        StockEvolutionModel().analyze("TSLA")
 
-    model = StockEvolutionModel()
-    report = model.analyze("TSLA")
+
+def test_analyze_demo_mode_never_touches_network(monkeypatch):
+    import stock_evolution_model.fetch as fetch_module
+
+    monkeypatch.setattr(fetch_module, "yf", None)
+
+    report = StockEvolutionModel().analyze("TSLA", demo=True)
     assert report.is_demo_data is True
     assert report.symbol == "TSLA"
 

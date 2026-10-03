@@ -1,9 +1,9 @@
-"""Live fundamentals fetch via `yfinance`, with demo-data fallback.
+"""Live fundamentals fetch via `yfinance`.
 
-Mirrors `src/lib/yahoo.ts`: try the live, unofficial Yahoo Finance data
-first, and fall back to deterministic synthetic data (clearly labeled)
-whenever the live fetch fails for any reason (no `yfinance` install,
-network egress blocked, unknown ticker, missing statements, etc.).
+Real data is the default. If it can't be fetched (no `yfinance` install,
+network blocked, unknown ticker, missing statements) a `DataUnavailableError`
+is raised rather than silently substituting made-up numbers. Synthetic demo
+data is only returned when explicitly requested with `demo=True`.
 """
 
 from __future__ import annotations
@@ -17,8 +17,19 @@ try:
     import yfinance as yf
 except ImportError:  # pragma: no cover - exercised when yfinance isn't installed
     yf = None
+else:
+    import logging
+
+    # yfinance logs every failed cookie/crumb request; the error we raise
+    # already says what went wrong.
+    logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 MAX_QUARTERS = 8
+MAX_ANNUAL = 4
+
+
+class DataUnavailableError(RuntimeError):
+    """Live fundamentals could not be fetched for a symbol."""
 
 
 def _row(frame, *names: str):
@@ -42,8 +53,9 @@ def _value_at(row, column, default: float = 0.0) -> float:
         return default
 
 
-def _build_quarters(income, balance, cashflow) -> list[QuarterFundamentals]:
-    columns = list(income.columns)[:MAX_QUARTERS]
+def _build_periods(income, balance, cashflow, limit: int) -> list[QuarterFundamentals]:
+    """Turn yfinance statement frames into oldest-to-newest period records."""
+    columns = list(income.columns)[:limit]  # yfinance lists newest first
     columns = sorted(columns)  # oldest -> newest
 
     revenue_row = _row(income, "Total Revenue", "TotalRevenue")
@@ -113,47 +125,60 @@ def _build_valuation(info: dict) -> ValuationSnapshot:
     )
 
 
-def fetch_fundamentals(symbol: str) -> FundamentalsSnapshot:
-    """Fetch fundamentals for `symbol`, falling back to demo data on any failure."""
+def _fetch_annual(ticker) -> list[QuarterFundamentals]:
+    try:
+        income = ticker.financials
+        if income is None or income.empty:
+            return []
+        return _build_periods(income, ticker.balance_sheet, ticker.cashflow, MAX_ANNUAL)
+    except Exception:  # noqa: BLE001 - annual data is a best-effort extra
+        return []
+
+
+def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
+    """Fetch fundamentals for `symbol`.
+
+    Raises `DataUnavailableError` if live data can't be retrieved. Pass
+    `demo=True` to get deterministic synthetic data instead (no network).
+    """
 
     symbol = symbol.upper()
 
-    if yf is None:
+    if demo:
         return demo_data.generate_demo_fundamentals(
-            symbol, reason="`yfinance` is not installed; showing demo data."
+            symbol, reason="Demo mode requested; these are synthetic numbers."
+        )
+
+    if yf is None:
+        raise DataUnavailableError(
+            "`yfinance` is not installed (pip install -r requirements.txt)."
         )
 
     try:
         ticker = yf.Ticker(symbol)
-        info = {}
         try:
             info = ticker.get_info() or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 - valuation multiples are optional
             info = {}
 
         income = ticker.quarterly_financials
-        balance = ticker.quarterly_balance_sheet
-        cashflow = ticker.quarterly_cashflow
-
         if income is None or income.empty:
             raise ValueError("no quarterly income statement available")
 
-        quarters = _build_quarters(income, balance, cashflow)
+        quarters = _build_periods(
+            income, ticker.quarterly_balance_sheet, ticker.quarterly_cashflow, MAX_QUARTERS
+        )
         if len(quarters) < 2:
             raise ValueError("insufficient quarterly history to evaluate trends")
 
-        valuation = _build_valuation(info)
-        company_name = info.get("longName") or info.get("shortName") or symbol
-
         return FundamentalsSnapshot(
             symbol=symbol,
-            company_name=company_name,
+            company_name=info.get("longName") or info.get("shortName") or symbol,
             is_demo_data=False,
             quarters=quarters,
-            valuation=valuation,
+            valuation=_build_valuation(info),
             data_notes=[],
+            annual=_fetch_annual(ticker),
         )
-    except Exception as exc:  # noqa: BLE001 - any fetch failure falls back to demo data
-        return demo_data.generate_demo_fundamentals(
-            symbol, reason=f"Live data fetch failed ({exc}); showing demo data."
-        )
+    except Exception as exc:  # noqa: BLE001
+        raise DataUnavailableError(f"live data fetch failed for {symbol}: {exc}") from exc

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from . import scoring
 from .fetch import fetch_fundamentals
-from .metrics import compute_quarter_metrics
+from .metrics import best_revenue_growth, compute_quarter_metrics, compute_ttm
 from .types import CategoryResult, EvolutionReport, FundamentalsSnapshot
 
 DEFAULT_WEIGHTS = {
@@ -32,8 +32,13 @@ class StockEvolutionModel:
             raise ValueError("weights must sum to a positive number")
         self.weights = {k: v / total for k, v in self.weights.items()}
 
-    def analyze(self, symbol: str) -> EvolutionReport:
-        snapshot = fetch_fundamentals(symbol)
+    def analyze(self, symbol: str, demo: bool = False) -> EvolutionReport:
+        """Fetch live data and score it.
+
+        Raises `DataUnavailableError` if live data can't be fetched; pass
+        `demo=True` to score deterministic synthetic data instead.
+        """
+        snapshot = fetch_fundamentals(symbol, demo=demo)
         return self._build_report(snapshot)
 
     def analyze_snapshot(self, snapshot: FundamentalsSnapshot) -> EvolutionReport:
@@ -42,13 +47,16 @@ class StockEvolutionModel:
 
     def _build_report(self, snapshot: FundamentalsSnapshot) -> EvolutionReport:
         quarterly = compute_quarter_metrics(snapshot.quarters)
+        ttm = compute_ttm(snapshot.quarters)
+        growth, growth_basis = best_revenue_growth(snapshot.quarters, snapshot.annual)
+        loss_making = ttm is not None and ttm.net_income < 0
 
         categories = [
-            scoring.score_revenue_growth(quarterly),
-            scoring.score_profitability(quarterly),
-            scoring.score_valuation(snapshot.valuation),
+            scoring.score_revenue_growth(quarterly, growth, growth_basis),
+            scoring.score_profitability(quarterly, ttm),
+            scoring.score_valuation(snapshot.valuation, loss_making),
             scoring.score_debt(quarterly),
-            scoring.score_cash_flow(quarterly),
+            scoring.score_cash_flow(quarterly, ttm),
         ]
 
         overall_score = sum(c.score * self.weights[c.name] for c in categories)
@@ -74,23 +82,34 @@ TREND_ICON = {"Improving": "^", "Stable": "-", "Deteriorating": "v"}
 
 # Which metrics to surface as headline numbers under each category, and how
 # to render them. (label, metrics_key, suffix) - suffix "%" appends a
-# percent sign, "" prints the raw number.
+# percent sign, "x" a multiple, "s" a text value, "" the raw number.
 _HEADLINE_METRICS: dict[str, list[tuple[str, str, str]]] = {
-    "Revenue Growth": [("Growth (latest qtr)", "latest_growth_pct", "%")],
+    "Revenue Growth": [
+        ("Growth", "latest_growth_pct", "%"),
+        ("Measured as", "growth_basis", "s"),
+    ],
     "Profitability": [
         ("Net margin", "latest_net_margin_pct", "%"),
         ("ROE", "latest_roe_pct", "%"),
+        ("Basis", "basis", "s"),
     ],
     "Valuation": [
         ("Trailing P/E", "trailing_pe", "x"),
-        ("PEG ratio", "peg_ratio", ""),
-        ("Price/Sales", "price_to_sales", "x"),
+        ("Forward P/E", "forward_pe", "x"),
+        ("PEG", "peg_ratio", ""),
+        ("EV/EBITDA", "ev_to_ebitda", "x"),
+        ("P/S", "price_to_sales", "x"),
     ],
     "Debt Levels": [
         ("Debt/Equity", "latest_debt_to_equity", ""),
         ("Current ratio", "latest_current_ratio", ""),
+        ("Interest cover", "latest_interest_coverage", "x"),
+        ("Debt/EBITDA", "latest_debt_to_ebitda", "x"),
     ],
-    "Cash Flow Trends": [("FCF margin", "latest_fcf_margin_pct", "%")],
+    "Cash Flow Trends": [
+        ("FCF margin", "latest_fcf_margin_pct", "%"),
+        ("Basis", "basis", "s"),
+    ],
 }
 
 
@@ -100,6 +119,8 @@ def _format_headline(category: CategoryResult) -> str:
         value = category.metrics.get(key)
         if value is None:
             parts.append(f"{label}: n/a")
+        elif suffix == "s":
+            parts.append(f"{label}: {value}")
         elif suffix == "%":
             parts.append(f"{label}: {value:+.1f}%")
         elif suffix == "x":

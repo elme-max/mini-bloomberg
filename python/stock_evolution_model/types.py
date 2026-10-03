@@ -46,6 +46,9 @@ class FundamentalsSnapshot:
     quarters: list[QuarterFundamentals]
     valuation: ValuationSnapshot
     data_notes: list[str] = field(default_factory=list)
+    # Fiscal-year statements (oldest-to-newest); used when too few quarters
+    # exist for a same-quarter-last-year growth comparison.
+    annual: list[QuarterFundamentals] = field(default_factory=list)
 
 
 @dataclass
