@@ -59,6 +59,32 @@ an explicit error for that ticker and exit code 1. To try the model without
 network access, opt in to deterministic synthetic data with `--demo`; those
 reports are clearly labeled `[DEMO DATA]` / `is_demo_data`.
 
+## Where the numbers come from (and matching Yahoo)
+
+The headline "current" figures - revenue growth (latest quarter vs the same
+quarter last year), net margin, ROE, FCF margin, debt/equity and current
+ratio - are taken **as Yahoo Finance publishes them** whenever it provides
+them, so they match what you see on the Yahoo page. The valuation multiples
+(P/E, forward P/E, PEG, EV/EBITDA, P/S) always come straight from Yahoo.
+
+When Yahoo doesn't publish a figure, the model falls back to its own
+calculation from the quarterly statements (trailing-12-month sums, annualized
+ROE, and so on), and the quarterly trends always come from the statements.
+Each category states its basis (`Basis: Yahoo reported (trailing 12 months)`
+or `trailing 12 months`).
+
+If a number still looks off, run with `--audit` to print the model's own
+calculation side by side with Yahoo's figure for every metric:
+
+```
+VALUE CHECK - this model's own calculation vs the figure Yahoo reports
+  Metric            Own calc     Yahoo        Diff   Used
+  Revenue growth      +18.2%    +12.0%    +6.2 pts   Yahoo
+  Debt/equity          0.40x     1.50x       -1.10   Yahoo
+```
+
+The same data is in the JSON output under `source_comparison`.
+
 ## Setup
 
 ```bash
@@ -73,6 +99,7 @@ pip install -r requirements.txt
 python -m stock_evolution_model AAPL MSFT        # live Yahoo Finance data
 python -m stock_evolution_model AAPL --json      # machine-readable
 python -m stock_evolution_model AAPL --demo      # synthetic data, no network
+python -m stock_evolution_model AAPL --audit     # compare own calc vs Yahoo's figures
 ```
 
 Tickers are plain command-line arguments, in the form Yahoo Finance uses

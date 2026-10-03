@@ -57,6 +57,13 @@ class FakeTicker:
         return {
             "longName": "Fake Corp",
             "sector": "Technology",
+            "revenueGrowth": 0.12,
+            "profitMargins": 0.20,
+            "returnOnEquity": 0.35,
+            "debtToEquity": 150.0,  # Yahoo publishes this as a percentage
+            "currentRatio": 1.4,
+            "freeCashflow": 60.0,
+            "totalRevenue": 600.0,
             "trailingPE": 20.0,
             "forwardPE": 18.0,
             "pegRatio": 1.2,
@@ -80,6 +87,9 @@ def test_live_path_parses_statements(monkeypatch):
     assert snapshot.quarters[-1].interest_expense == 2.0
     assert [a.revenue for a in snapshot.annual] == [400.0, 480.0]
     assert snapshot.sector == "Technology"
+    assert snapshot.reported.revenue_growth == 0.12
+    assert snapshot.reported.debt_to_equity == pytest.approx(1.5)
+    assert snapshot.reported.fcf_margin == pytest.approx(0.10)
     assert snapshot.valuation.forward_pe == 18.0
     assert snapshot.valuation.ev_to_ebitda == 12.0
 
@@ -92,7 +102,8 @@ def test_live_path_scores_end_to_end(monkeypatch):
     assert report.is_demo_data is False
     assert 0 <= report.overall_score <= 100
     growth = next(c for c in report.categories if c.name == "Revenue Growth")
-    assert growth.metrics["growth_basis"] == "latest quarter vs same quarter last year"
+    assert growth.metrics["latest_growth_pct"] == 12.0
+    assert growth.metrics["growth_basis"].startswith("Yahoo reported")
     assert report.sector_profile == "Technology"
 
 

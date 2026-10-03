@@ -119,9 +119,12 @@ class TTMMetrics:
     roe: float | None  # annualized net income / latest equity
     fcf_margin: float | None
     quarters_used: int
+    source: str = ""  # set when figures come from the data source rather than the statements
 
     @property
     def basis(self) -> str:
+        if self.source:
+            return self.source
         if self.quarters_used >= 4:
             return "trailing 12 months"
         return f"annualized from {self.quarters_used} quarter(s)"

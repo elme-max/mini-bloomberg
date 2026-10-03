@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use deterministic synthetic data instead of live Yahoo Finance data (no network)",
     )
+    parser.add_argument(
+        "--audit",
+        action="store_true",
+        help="Also print this model's own calculation next to Yahoo's reported figures",
+    )
     return parser
 
 
@@ -43,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([r.to_dict() for r in reports], indent=2))
     else:
         for report in reports:
-            print(format_report(report))
+            print(format_report(report, audit=args.audit))
             print()
 
     if failures:

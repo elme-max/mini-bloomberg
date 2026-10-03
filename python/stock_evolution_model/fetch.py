@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from . import demo_data
-from .types import FundamentalsSnapshot, QuarterFundamentals, ValuationSnapshot
+from .types import FundamentalsSnapshot, QuarterFundamentals, ReportedMetrics, ValuationSnapshot
 
 try:
     import yfinance as yf
@@ -125,6 +125,35 @@ def _build_valuation(info: dict) -> ValuationSnapshot:
     )
 
 
+def _number(info: dict, key: str) -> Optional[float]:
+    value = info.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float("inf"), float("-inf")):  # NaN / infinity
+        return None
+    return float(value)
+
+
+def _build_reported(info: dict) -> ReportedMetrics:
+    """Yahoo's own headline ratios, converted to plain fractions/multiples."""
+    debt_to_equity = _number(info, "debtToEquity")
+    free_cash_flow = _number(info, "freeCashflow")
+    total_revenue = _number(info, "totalRevenue")
+    return ReportedMetrics(
+        revenue_growth=_number(info, "revenueGrowth"),
+        net_margin=_number(info, "profitMargins"),
+        roe=_number(info, "returnOnEquity"),
+        # Yahoo publishes debt/equity as a percentage (145.3 means 1.453x).
+        debt_to_equity=debt_to_equity / 100 if debt_to_equity is not None else None,
+        current_ratio=_number(info, "currentRatio"),
+        fcf_margin=(
+            free_cash_flow / total_revenue
+            if free_cash_flow is not None and total_revenue and total_revenue > 0
+            else None
+        ),
+    )
+
+
 def _fetch_annual(ticker) -> list[QuarterFundamentals]:
     try:
         income = ticker.financials
@@ -180,6 +209,7 @@ def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
             data_notes=[],
             annual=_fetch_annual(ticker),
             sector=info.get("sector") or None,
+            reported=_build_reported(info),
         )
     except Exception as exc:  # noqa: BLE001
         raise DataUnavailableError(f"live data fetch failed for {symbol}: {exc}") from exc

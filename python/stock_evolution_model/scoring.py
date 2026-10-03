@@ -199,14 +199,18 @@ def score_valuation(
 
 
 def score_debt(
-    quarterly: list[QuarterMetrics], profile: SectorProfile = GENERIC
+    quarterly: list[QuarterMetrics],
+    profile: SectorProfile = GENERIC,
+    reported_de: float | None = None,
+    reported_current: float | None = None,
 ) -> CategoryResult:
     def latest(attr: str) -> float | None:
         return next((getattr(q, attr) for q in reversed(quarterly) if getattr(q, attr) is not None), None)
 
     de_ratios = [q.debt_to_equity for q in quarterly if q.debt_to_equity is not None]
-    latest_de = de_ratios[-1] if de_ratios else None
-    latest_current = latest("current_ratio")
+    # The data source's own most-recent-quarter figures win over our calculation.
+    latest_de = reported_de if reported_de is not None else (de_ratios[-1] if de_ratios else None)
+    latest_current = reported_current if reported_current is not None else latest("current_ratio")
     latest_coverage = latest("interest_coverage")
     latest_leverage = latest("debt_to_ebitda")
 
@@ -242,6 +246,11 @@ def score_debt(
             "latest_interest_coverage": r(latest_coverage) if profile.interest_coverage else None,
             "latest_debt_to_ebitda": r(latest_leverage) if profile.debt_to_ebitda else None,
             "debt_to_equity_series": [round(d, 2) for d in de_ratios],
+            "basis": "Yahoo reported D/E and current ratio"
+            if reported_de is not None and reported_current is not None
+            else "Yahoo reported where available, else computed"
+            if reported_de is not None or reported_current is not None
+            else "computed from statements",
         },
         detail=f"{profile.name} scale. Debt/equity (40%): {_num(profile.debt_to_equity)}. "
         "Also current ratio (20%), interest coverage (20%) and debt/EBITDA (20%); inputs that are "

@@ -39,6 +39,23 @@ class ValuationSnapshot:
 
 
 @dataclass
+class ReportedMetrics:
+    """Headline figures exactly as the data source (Yahoo Finance) publishes them.
+
+    These are the "current" numbers people compare against on the Yahoo page,
+    so they take precedence over this model's own statement-based calculation
+    when present. All ratios are plain fractions/multiples (25% -> 0.25).
+    """
+
+    revenue_growth: Optional[float] = None  # latest quarter vs same quarter last year
+    net_margin: Optional[float] = None  # trailing 12 months
+    roe: Optional[float] = None  # trailing 12 months
+    debt_to_equity: Optional[float] = None  # most recent quarter, as a multiple
+    current_ratio: Optional[float] = None  # most recent quarter
+    fcf_margin: Optional[float] = None  # trailing-12-month FCF / revenue
+
+
+@dataclass
 class FundamentalsSnapshot:
     symbol: str
     company_name: str
@@ -50,6 +67,7 @@ class FundamentalsSnapshot:
     # exist for a same-quarter-last-year growth comparison.
     annual: list[QuarterFundamentals] = field(default_factory=list)
     sector: Optional[str] = None  # as reported by the data source, e.g. "Technology"
+    reported: ReportedMetrics = field(default_factory=ReportedMetrics)
 
 
 @dataclass
@@ -60,6 +78,23 @@ class CategoryResult:
     trend: str  # "Improving" | "Stable" | "Deteriorating"
     metrics: dict = field(default_factory=dict)
     detail: str = ""
+
+
+@dataclass
+class SourceComparison:
+    """One metric: this model's own calculation next to the data source's figure."""
+
+    metric: str
+    unit: str  # "%" or "x"
+    computed: Optional[float]  # as a fraction/multiple, like ReportedMetrics
+    reported: Optional[float]
+    used: str  # "reported" or "computed": which value the scoring used
+
+    @property
+    def difference(self) -> Optional[float]:
+        if self.computed is None or self.reported is None:
+            return None
+        return self.computed - self.reported
 
 
 @dataclass
@@ -74,6 +109,7 @@ class EvolutionReport:
     overall_trend: str
     sector: Optional[str] = None
     sector_profile: str = "Generic"  # name of the scoring profile that was applied
+    comparisons: list[SourceComparison] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +122,17 @@ class EvolutionReport:
             "overall_trend": self.overall_trend,
             "sector": self.sector,
             "sector_profile": self.sector_profile,
+            "source_comparison": [
+                {
+                    "metric": c.metric,
+                    "unit": c.unit,
+                    "computed": c.computed,
+                    "reported": c.reported,
+                    "difference": c.difference,
+                    "used": c.used,
+                }
+                for c in self.comparisons
+            ],
             "categories": [
                 {
                     "name": c.name,
