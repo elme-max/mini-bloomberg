@@ -8,10 +8,13 @@ data is only returned when explicitly requested with `demo=True`.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from . import demo_data
 from .types import FundamentalsSnapshot, QuarterFundamentals, ReportedMetrics, ValuationSnapshot
+
+if TYPE_CHECKING:
+    from .cache import SnapshotCache
 
 try:
     import yfinance as yf
@@ -164,11 +167,20 @@ def _fetch_annual(ticker) -> list[QuarterFundamentals]:
         return []
 
 
-def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
+def fetch_fundamentals(
+    symbol: str,
+    demo: bool = False,
+    cache: "SnapshotCache | None" = None,
+    refresh: bool = False,
+) -> FundamentalsSnapshot:
     """Fetch fundamentals for `symbol`.
 
     Raises `DataUnavailableError` if live data can't be retrieved. Pass
     `demo=True` to get deterministic synthetic data instead (no network).
+
+    With a `cache`, a recent enough stored snapshot is returned without any
+    network request (even if `yfinance` is unavailable); `refresh=True` skips
+    that lookup but still stores the new result. Demo data is never cached.
     """
 
     symbol = symbol.upper()
@@ -177,6 +189,11 @@ def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
         return demo_data.generate_demo_fundamentals(
             symbol, reason="Demo mode requested; these are synthetic numbers."
         )
+
+    if cache is not None and not refresh:
+        cached = cache.get(symbol)
+        if cached is not None:
+            return cached
 
     if yf is None:
         raise DataUnavailableError(
@@ -200,7 +217,7 @@ def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
         if len(quarters) < 2:
             raise ValueError("insufficient quarterly history to evaluate trends")
 
-        return FundamentalsSnapshot(
+        snapshot = FundamentalsSnapshot(
             symbol=symbol,
             company_name=info.get("longName") or info.get("shortName") or symbol,
             is_demo_data=False,
@@ -213,3 +230,7 @@ def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
         )
     except Exception as exc:  # noqa: BLE001
         raise DataUnavailableError(f"live data fetch failed for {symbol}: {exc}") from exc
+
+    if cache is not None:
+        cache.put(symbol, snapshot)
+    return snapshot

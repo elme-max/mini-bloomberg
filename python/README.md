@@ -167,6 +167,49 @@ Tickers are plain command-line arguments, in the form Yahoo Finance uses
 (`AAPL`, `BRK-B`, ...). A ticker that fails prints an error to stderr; the
 others still run.
 
+### Comparing many companies
+
+```bash
+python -m stock_evolution_model AAPL MSFT NVDA JPM --table              # one ranked table
+python -m stock_evolution_model --tickers-file watchlist.txt --table    # tickers from a file
+python -m stock_evolution_model --tickers-file watchlist.txt --table --sort debt
+python -m stock_evolution_model --tickers-file watchlist.txt --csv ranked.csv
+```
+
+```
+Rank  Ticker   Score  Grade  Trend          Sector        Growth  Profit   Value    Debt    Cash
+   1  NVDA       75.0  B      Stable         Technology         91.0    95.0    32.0    71.0    82.0
+```
+
+- `--table` prints one ranked table instead of a full report per company.
+  `--sort` picks the order: `score` (default), `ticker`, or one category
+  (`growth`, `profitability`, `valuation`, `debt`, `cashflow`).
+- `--csv FILE` writes the same ranking to a CSV (scores, grades, trends and the
+  headline figures such as margins, multiples and leverage, to two decimals).
+  It can be combined with `--table` or the normal reports.
+- A tickers file may separate tickers by spaces, commas, semicolons or lines,
+  and `#` starts a comment. Tickers from the command line and the file are
+  merged; duplicates are dropped.
+
+### Caching and rate limiting
+
+Yahoo throttles clients that repeat requests, so each fetched company is cached
+on disk for 12 hours (`~/.cache/stock_evolution_model`). Cached companies need
+no network at all, so they can be re-scored offline, and the report notes how
+old the data is (`Data: served from cache, fetched 2.5 h ago`). Between *live*
+requests the CLI pauses 0.5 seconds. Demo data is never cached.
+
+| Option | Effect |
+| --- | --- |
+| `--no-cache` | Always fetch from Yahoo; don't read or write the cache |
+| `--refresh` | Skip the cache for this run, but store the fresh result |
+| `--cache-hours H` | How long cached data stays fresh (default 12) |
+| `--cache-dir DIR` | Use a different cache folder |
+| `--delay SECONDS` | Pause between live requests (default 0.5; `0` turns it off) |
+
+From code: `StockEvolutionModel(cache=SnapshotCache())`, then
+`model.analyze("AAPL")` (or `refresh=True`).
+
 Or from code:
 
 ```python
@@ -214,5 +257,7 @@ stock_evolution_model/
   scoring.py     # 0-100 heuristic scoring per category + letter grades
   model.py       # StockEvolutionModel orchestrator + text report formatting
   cli.py         # `python -m stock_evolution_model TICKER [...]`
+  compare.py     # ranked comparison table and CSV export
+  cache.py       # on-disk cache of fetched fundamentals
   backtest.py    # point-in-time backtest, weight fitting, Yahoo CSV export
 ```

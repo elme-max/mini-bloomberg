@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from . import scoring
 from .fetch import fetch_fundamentals
@@ -15,6 +16,9 @@ from .types import (
     ReportedMetrics,
     SourceComparison,
 )
+
+if TYPE_CHECKING:
+    from .cache import SnapshotCache
 
 DEFAULT_WEIGHTS = {
     "Revenue Growth": 0.20,
@@ -34,20 +38,26 @@ class StockEvolutionModel:
     score, letter grade, and trend direction.
     """
 
-    def __init__(self, weights: dict[str, float] | None = None):
+    def __init__(
+        self,
+        weights: dict[str, float] | None = None,
+        cache: "SnapshotCache | None" = None,
+    ):
+        self.cache = cache
         self.weights = dict(weights) if weights else dict(DEFAULT_WEIGHTS)
         total = sum(self.weights.values())
         if total <= 0:
             raise ValueError("weights must sum to a positive number")
         self.weights = {k: v / total for k, v in self.weights.items()}
 
-    def analyze(self, symbol: str, demo: bool = False) -> EvolutionReport:
-        """Fetch live data and score it.
+    def analyze(self, symbol: str, demo: bool = False, refresh: bool = False) -> EvolutionReport:
+        """Fetch live data (or a recent cached copy) and score it.
 
         Raises `DataUnavailableError` if live data can't be fetched; pass
-        `demo=True` to score deterministic synthetic data instead.
+        `demo=True` to score deterministic synthetic data instead, or
+        `refresh=True` to bypass the cache for this call.
         """
-        snapshot = fetch_fundamentals(symbol, demo=demo)
+        snapshot = fetch_fundamentals(symbol, demo=demo, cache=self.cache, refresh=refresh)
         return self._build_report(snapshot)
 
     def analyze_snapshot(self, snapshot: FundamentalsSnapshot) -> EvolutionReport:
@@ -242,6 +252,8 @@ def format_report(report: EvolutionReport, audit: bool = False) -> str:
         lines.append("Sector: unknown (generic thresholds, not sector-adjusted)")
     if report.is_demo_data:
         lines.append(f"[DEMO DATA - not real market data] {'; '.join(report.data_notes)}")
+    elif report.data_notes:
+        lines.append(f"Data: {'; '.join(report.data_notes)}")
     lines.append("")
     for c in report.categories:
         icon = TREND_ICON.get(c.trend, "-")
