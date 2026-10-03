@@ -85,6 +85,67 @@ VALUE CHECK - this model's own calculation vs the figure Yahoo reports
 
 The same data is in the JSON output under `source_comparison`.
 
+## Backtesting the scores and weights
+
+The category weights (20% each) and the score bands are rules of thumb. The
+backtest checks them against what the stocks actually did next: do high scorers
+beat low scorers, which categories carry that signal, and would other weights
+have done better?
+
+```bash
+python -m stock_evolution_model.backtest run --fundamentals fundamentals.csv --prices prices.csv
+python -m stock_evolution_model.backtest run ... --horizon 180 --lag 60 --json
+python -m stock_evolution_model.backtest export AAPL MSFT --out history   # from Yahoo, see limits below
+```
+
+**What it reports**
+
+- **Mean IC** per category and overall: the rank correlation between the score
+  and the following return, averaged over dates (above 0 means higher scores
+  were followed by higher returns), with a t-stat and the **Top-Bottom** return
+  of the best-scored fifth vs the worst-scored fifth.
+- **Weight fitting:** weights are fitted on the earliest 60% of dates and judged
+  on the later, unseen 40% (never shuffled), pulled halfway back toward equal
+  weights. New weights are only recommended if they beat equal weights
+  out-of-sample; otherwise the verdict says to keep the defaults.
+- **Band diagnostics:** the share of each category's scores stuck at exactly 0
+  or 100. A high share means that category's bands are too narrow to separate
+  companies. Bands are *diagnosed*, not auto-tuned: fitting dozens of cut-offs
+  on limited history would only overfit.
+
+**How look-ahead is avoided:** at each as-of date a company is scored only from
+quarters already reported (period end plus `--lag` days, default 45), valuation
+multiples are rebuilt from the price on that date, and Yahoo's "current"
+figures are never used. The forward-return windows do not overlap
+(rebalance spacing = `--horizon`).
+
+**Input files**
+
+`fundamentals.csv` - one row per company per quarter. Required: `symbol`,
+`period_end` (YYYY-MM-DD), `revenue`, `gross_profit`, `operating_income`,
+`net_income`, `total_assets`, `total_equity`, `total_debt`, `current_assets`,
+`current_liabilities`, `interest_expense`, `ebitda`, `operating_cash_flow`,
+`capex`. Optional: `shares_outstanding` (enables valuation), `sector`. Blank or
+non-numeric required values are an error, never a silent zero.
+
+`prices.csv` - `symbol,date,close` (use split/dividend-adjusted closes).
+
+**Limits you should know about**
+
+- **Yahoo cannot supply enough history.** It serves only ~4-5 recent quarters,
+  so `export` is good for trying the pipeline but yields almost no usable
+  dates. A meaningful backtest needs years of point-in-time quarterly data
+  from a deeper source (aim for 12+ dates and 30+ companies per date; the
+  report warns when the sample is smaller).
+- **Survivorship bias:** use a universe that includes companies that were
+  later delisted or acquired; backtesting only today's survivors flatters
+  every score.
+- **Reduced valuation factor:** in a backtest, valuation uses trailing P/E, P/S
+  and (for financials) P/B from the as-of price. PEG, forward P/E and EV/EBITDA
+  need analyst estimates or cash balances that this data does not carry.
+- **A passing backtest is evidence, not proof.** Until you run it on real
+  multi-year data, the equal default weights remain unvalidated guesses.
+
 ## Setup
 
 ```bash
@@ -153,4 +214,5 @@ stock_evolution_model/
   scoring.py     # 0-100 heuristic scoring per category + letter grades
   model.py       # StockEvolutionModel orchestrator + text report formatting
   cli.py         # `python -m stock_evolution_model TICKER [...]`
+  backtest.py    # point-in-time backtest, weight fitting, Yahoo CSV export
 ```
