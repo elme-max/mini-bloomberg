@@ -192,9 +192,9 @@ def _format_headline(category: CategoryResult) -> str:
         elif suffix == "s":
             parts.append(f"{label}: {value}")
         elif suffix == "%":
-            parts.append(f"{label}: {value:+.1f}%")
+            parts.append(f"{label}: {value:+.2f}%")
         elif suffix == "x":
-            parts.append(f"{label}: {value:.1f}x")
+            parts.append(f"{label}: {value:.2f}x")
         else:
             parts.append(f"{label}: {value:.2f}")
     return "  |  ".join(parts)
@@ -205,25 +205,25 @@ def _format_audit(report: EvolutionReport) -> list[str]:
              "(scoring uses Yahoo's figure when it has one, otherwise our own calculation)"]
     if report.is_demo_data:
         return lines + ["  Demo data has no Yahoo figures to compare against."]
-    lines.append(f"  {'Metric':<16}{'Own calc':>10}{'Yahoo':>10}{'Diff':>12}   Used")
+    lines.append(f"  {'Metric':<16}{'Own calc':>11}{'Yahoo':>11}{'Diff':>13}   Used")
 
     def fmt(value, unit):
         if value is None:
             return "n/a"
-        return f"{value * 100:+.1f}%" if unit == "%" else f"{value:.2f}x"
+        return f"{value * 100:+.2f}%" if unit == "%" else f"{value:.2f}x"
 
     for c in report.comparisons:
         diff = c.difference
         if diff is None:
             diff_text = "-"
         elif c.unit == "%":
-            diff_text = f"{diff * 100:+.1f} pts"
+            diff_text = f"{diff * 100:+.2f} pts"
         else:
             diff_text = f"{diff:+.2f}"
         used = "Yahoo" if c.used == "reported" else "own calc"
         lines.append(
-            f"  {c.metric:<16}{fmt(c.computed, c.unit):>10}{fmt(c.reported, c.unit):>10}"
-            f"{diff_text:>12}   {used}"
+            f"  {c.metric:<16}{fmt(c.computed, c.unit):>11}{fmt(c.reported, c.unit):>11}"
+            f"{diff_text:>13}   {used}"
         )
     return lines
 

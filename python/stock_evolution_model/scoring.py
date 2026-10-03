@@ -49,6 +49,10 @@ def _trend_label(slope: float | None) -> str:
     return "Stable"
 
 
+def _round2(value: float | None) -> float | None:
+    return round(value, 2) if value is not None else None
+
+
 def _band_score(value: float | None, band: Band | None) -> float | None:
     """0-100 score of `value` within `band`; None if the value or band is missing."""
     if value is None or band is None:
@@ -186,12 +190,12 @@ def score_valuation(
         grade=grade_for_score(score),
         trend="Stable",  # valuation is a point-in-time read, not a quarterly series
         metrics={
-            "trailing_pe": valuation.trailing_pe,
-            "forward_pe": valuation.forward_pe,
-            "peg_ratio": valuation.peg_ratio,
-            "ev_to_ebitda": valuation.ev_to_ebitda,
-            "price_to_sales": valuation.price_to_sales,
-            "price_to_book": valuation.price_to_book,
+            "trailing_pe": _round2(valuation.trailing_pe),
+            "forward_pe": _round2(valuation.forward_pe),
+            "peg_ratio": _round2(valuation.peg_ratio),
+            "ev_to_ebitda": _round2(valuation.ev_to_ebitda),
+            "price_to_sales": _round2(valuation.price_to_sales),
+            "price_to_book": _round2(valuation.price_to_book),
             "loss_making": loss_making,
         },
         detail=detail,

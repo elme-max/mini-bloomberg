@@ -112,7 +112,7 @@ def test_audit_output_is_opt_in_and_lists_both_values():
     assert "VALUE CHECK" not in format_report(report)
     text = format_report(report, audit=True)
     assert "VALUE CHECK" in text
-    assert "Revenue growth" in text and "+5.0%" in text and "pts" in text
+    assert "Revenue growth" in text and "+5.00%" in text and "pts" in text
     assert "Yahoo" in text and "own calc" in text
 
 
@@ -126,3 +126,38 @@ def test_cli_audit_flag(capsys):
     assert "VALUE CHECK" in capsys.readouterr().out
     assert main(["AAPL", "--demo"]) == 0
     assert "VALUE CHECK" not in capsys.readouterr().out
+
+
+def test_numbers_are_shown_with_two_decimals():
+    import re
+
+    snapshot = _snapshot(revenue_growth=0.0821, net_margin=0.3137, roe=0.4412, fcf_margin=0.2705)
+    snapshot.is_demo_data = False
+    text = format_report(StockEvolutionModel().analyze_snapshot(snapshot), audit=True)
+
+    assert "Growth: +8.21%" in text
+    assert "Net margin: +31.37%" in text
+    assert "ROE: +44.12%" in text
+    assert "FCF margin: +27.05%" in text
+    # every computed percentage / multiple carries exactly two decimals
+    # (the "how it's scored" lines describe score bands, not computed values)
+    values = [
+        m
+        for line in text.splitlines()
+        if "how it's scored" not in line
+        for m in re.findall(r"\d+\.\d+(?=%|x\b)", line)
+    ]
+    assert values and all(len(v.split(".")[1]) == 2 for v in values)
+
+
+def test_json_values_are_rounded_to_two_decimals():
+    snapshot = _snapshot(revenue_growth=0.082134567, debt_to_equity=1.456789)
+    data = StockEvolutionModel().analyze_snapshot(snapshot).to_dict()
+
+    rows = {r["metric"]: r for r in data["source_comparison"]}
+    assert rows["Revenue growth"]["reported"] == 0.0821  # 8.21%
+    assert rows["Debt/equity"]["reported"] == 1.46
+    valuation = next(c for c in data["categories"] if c["name"] == "Valuation")["metrics"]
+    for value in valuation.values():
+        if isinstance(value, float):
+            assert value == round(value, 2)

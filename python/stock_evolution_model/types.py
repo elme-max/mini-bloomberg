@@ -90,6 +90,12 @@ class SourceComparison:
     reported: Optional[float]
     used: str  # "reported" or "computed": which value the scoring used
 
+    def rounded(self, value: Optional[float]) -> Optional[float]:
+        """2 decimals as displayed: 4 places for a fraction (18.23%), 2 for a multiple."""
+        if value is None:
+            return None
+        return round(value, 4 if self.unit == "%" else 2)
+
     @property
     def difference(self) -> Optional[float]:
         if self.computed is None or self.reported is None:
@@ -126,9 +132,9 @@ class EvolutionReport:
                 {
                     "metric": c.metric,
                     "unit": c.unit,
-                    "computed": c.computed,
-                    "reported": c.reported,
-                    "difference": c.difference,
+                    "computed": c.rounded(c.computed),
+                    "reported": c.rounded(c.reported),
+                    "difference": c.rounded(c.difference),
                     "used": c.used,
                 }
                 for c in self.comparisons
