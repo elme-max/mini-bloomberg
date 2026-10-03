@@ -49,6 +49,7 @@ class FundamentalsSnapshot:
     # Fiscal-year statements (oldest-to-newest); used when too few quarters
     # exist for a same-quarter-last-year growth comparison.
     annual: list[QuarterFundamentals] = field(default_factory=list)
+    sector: Optional[str] = None  # as reported by the data source, e.g. "Technology"
 
 
 @dataclass
@@ -71,6 +72,8 @@ class EvolutionReport:
     overall_score: float
     overall_grade: str
     overall_trend: str
+    sector: Optional[str] = None
+    sector_profile: str = "Generic"  # name of the scoring profile that was applied
 
     def to_dict(self) -> dict:
         return {
@@ -81,6 +84,8 @@ class EvolutionReport:
             "overall_score": round(self.overall_score, 1),
             "overall_grade": self.overall_grade,
             "overall_trend": self.overall_trend,
+            "sector": self.sector,
+            "sector_profile": self.sector_profile,
             "categories": [
                 {
                     "name": c.name,

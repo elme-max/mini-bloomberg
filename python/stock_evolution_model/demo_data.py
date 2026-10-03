@@ -26,6 +26,18 @@ _COMPANY_NAMES = {
 }
 
 
+_SECTORS = {
+    "AAPL": "Technology",
+    "MSFT": "Technology",
+    "NVDA": "Technology",
+    "GOOGL": "Communication Services",
+    "META": "Communication Services",
+    "AMZN": "Consumer Cyclical",
+    "TSLA": "Consumer Cyclical",
+    "JPM": "Financial Services",
+}
+
+
 def _seed_from_symbol(symbol: str) -> int:
     h = 0
     for ch in symbol.upper():
@@ -113,4 +125,5 @@ def generate_demo_fundamentals(symbol: str, reason: str | None = None) -> Fundam
         quarters=quarters,
         valuation=valuation,
         data_notes=notes,
+        sector=_SECTORS.get(symbol),
     )

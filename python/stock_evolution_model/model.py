@@ -5,6 +5,7 @@ from __future__ import annotations
 from . import scoring
 from .fetch import fetch_fundamentals
 from .metrics import best_revenue_growth, compute_quarter_metrics, compute_ttm
+from .sectors import GENERIC, profile_for
 from .types import CategoryResult, EvolutionReport, FundamentalsSnapshot
 
 DEFAULT_WEIGHTS = {
@@ -50,13 +51,14 @@ class StockEvolutionModel:
         ttm = compute_ttm(snapshot.quarters)
         growth, growth_basis = best_revenue_growth(snapshot.quarters, snapshot.annual)
         loss_making = ttm is not None and ttm.net_income < 0
+        profile = profile_for(snapshot.sector)
 
         categories = [
-            scoring.score_revenue_growth(quarterly, growth, growth_basis),
-            scoring.score_profitability(quarterly, ttm),
-            scoring.score_valuation(snapshot.valuation, loss_making),
-            scoring.score_debt(quarterly),
-            scoring.score_cash_flow(quarterly, ttm),
+            scoring.score_revenue_growth(quarterly, growth, growth_basis, profile),
+            scoring.score_profitability(quarterly, ttm, profile),
+            scoring.score_valuation(snapshot.valuation, loss_making, profile),
+            scoring.score_debt(quarterly, profile),
+            scoring.score_cash_flow(quarterly, ttm, profile),
         ]
 
         overall_score = sum(c.score * self.weights[c.name] for c in categories)
@@ -75,6 +77,8 @@ class StockEvolutionModel:
             overall_score=overall_score,
             overall_grade=scoring.grade_for_score(overall_score),
             overall_trend=overall_trend,
+            sector=snapshot.sector,
+            sector_profile=profile.name,
         )
 
 
@@ -136,6 +140,12 @@ def format_report(report: EvolutionReport) -> str:
         f"OVERALL SCORE: {report.overall_score:.1f}/100 (Grade {report.overall_grade})  "
         f"-  Trend: {report.overall_trend}",
     ]
+    if report.sector_profile != GENERIC.name:
+        lines.append(f"Sector: {report.sector} (scored against {report.sector_profile} thresholds)")
+    elif report.sector:
+        lines.append(f"Sector: {report.sector} (no sector profile yet - generic thresholds)")
+    else:
+        lines.append("Sector: unknown (generic thresholds, not sector-adjusted)")
     if report.is_demo_data:
         lines.append(f"[DEMO DATA - not real market data] {'; '.join(report.data_notes)}")
     lines.append("")

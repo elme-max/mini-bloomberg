@@ -1,14 +1,16 @@
 """Heuristic 0-100 scoring for each of the five evaluation categories.
 
-Each `score_*` function maps a financial metric onto a 0-100 scale using
-thresholds drawn from common equity-research rules of thumb. This keeps the
-model transparent and explainable (every score can be traced back to a
-specific metric and threshold) rather than an opaque black box.
+Each `score_*` function maps a financial metric onto a 0-100 scale using the
+bands of a `SectorProfile` (see `sectors.py`), which default to generic
+equity-research rules of thumb. This keeps the model transparent and
+explainable (every score can be traced back to a specific metric and band)
+rather than an opaque black box.
 """
 
 from __future__ import annotations
 
 from .metrics import GROWTH_BASIS_QOQ, QuarterMetrics, TTMMetrics, linear_trend_slope
+from .sectors import GENERIC, Band, SectorProfile
 from .types import CategoryResult, ValuationSnapshot
 
 TREND_FLAT_THRESHOLD = 0.01  # slope magnitude below this counts as "Stable"
@@ -47,11 +49,18 @@ def _trend_label(slope: float | None) -> str:
     return "Stable"
 
 
-def _lower_is_better(value: float | None, worst: float, best: float) -> float | None:
-    """Score a valuation/leverage multiple; None when missing or not meaningful (<= 0)."""
+def _band_score(value: float | None, band: Band | None) -> float | None:
+    """0-100 score of `value` within `band`; None if the value or band is missing."""
+    if value is None or band is None:
+        return None
+    return _scale(value, band[0], band[1])
+
+
+def _multiple_score(value: float | None, band: Band | None) -> float | None:
+    """Like `_band_score` for valuation multiples, ignoring non-positive values."""
     if value is None or value <= 0:
         return None
-    return _scale(value, worst, best)  # worst -> 0, best -> 100
+    return _band_score(value, band)
 
 
 def _weighted_average(parts: list[tuple[float, float]]) -> float:
@@ -62,10 +71,19 @@ def _weighted_average(parts: list[tuple[float, float]]) -> float:
     return sum(s * w for s, w in parts) / total
 
 
+def _pct(band: Band | None) -> str:
+    return "n/a" if band is None else f"0 pts at {band[0]:+.0%}, 100 pts at {band[1]:+.0%}"
+
+
+def _num(band: Band | None) -> str:
+    return "n/a" if band is None else f"0 pts at {band[0]:g}x, 100 pts at {band[1]:g}x"
+
+
 def score_revenue_growth(
     quarterly: list[QuarterMetrics],
     growth: float | None = None,
     basis: str | None = None,
+    profile: SectorProfile = GENERIC,
 ) -> CategoryResult:
     series = [q.revenue_growth for q in quarterly if q.revenue_growth is not None]
     if growth is None and series:
@@ -75,7 +93,8 @@ def score_revenue_growth(
             if quarterly[-1].revenue_growth_is_yoy
             else GROWTH_BASIS_QOQ
         )
-    score = _scale(growth, -0.20, 0.30) if growth is not None else 50.0
+    score = _band_score(growth, profile.growth)
+    score = 50.0 if score is None else score
     slope = linear_trend_slope(series) if len(series) >= 2 else None
 
     return CategoryResult(
@@ -88,13 +107,16 @@ def score_revenue_growth(
             "growth_basis": basis or "n/a",
             "growth_series_pct": [round(g * 100, 2) for g in series],
         },
-        detail="Revenue growth scaled against a -20%..+30% band, measured on the most "
-        "reliable basis available; trend from the slope of the quarterly growth series.",
+        detail=f"Revenue growth on the {profile.name} scale ({_pct(profile.growth)}), "
+        "measured on the most reliable basis available; "
+        "trend from the slope of the quarterly growth series.",
     )
 
 
 def score_profitability(
-    quarterly: list[QuarterMetrics], ttm: TTMMetrics | None = None
+    quarterly: list[QuarterMetrics],
+    ttm: TTMMetrics | None = None,
+    profile: SectorProfile = GENERIC,
 ) -> CategoryResult:
     net_margins = [q.net_margin for q in quarterly if q.net_margin is not None]
     if ttm is not None:
@@ -105,9 +127,10 @@ def score_profitability(
         roe = quarter_roe * 4 if quarter_roe is not None else None  # annualize
         basis = "latest quarter (ROE annualized)"
 
-    margin_score = _scale(margin, -0.05, 0.25) if margin is not None else 50.0
-    roe_score = _scale(roe, 0.0, 0.30) if roe is not None else 50.0
-    score = margin_score * 0.6 + roe_score * 0.4
+    margin_score = _band_score(margin, profile.net_margin)
+    roe_score = _band_score(roe, profile.roe)
+    parts = [(sc, w) for sc, w in ((margin_score, 0.6), (roe_score, 0.4)) if sc is not None]
+    score = _weighted_average(parts)
 
     slope = linear_trend_slope(net_margins) if len(net_margins) >= 2 else None
 
@@ -122,29 +145,37 @@ def score_profitability(
             "basis": basis,
             "net_margin_series_pct": [round(m * 100, 2) for m in net_margins],
         },
-        detail="Blend of net margin (60%) and annual return on equity (40%); "
-        "trend from the slope of the quarterly net-margin series.",
+        detail=f"{profile.name} scale. Net margin (60%): {_pct(profile.net_margin)}. "
+        f"Annual return on equity (40%): {_pct(profile.roe)}. "
+        "Trend from the slope of the quarterly net-margin series.",
     )
 
 
-def score_valuation(valuation: ValuationSnapshot, loss_making: bool = False) -> CategoryResult:
+def score_valuation(
+    valuation: ValuationSnapshot,
+    loss_making: bool = False,
+    profile: SectorProfile = GENERIC,
+) -> CategoryResult:
     # Lower multiples score higher; PEG folds growth into the P/E read.
-    # Negative or missing multiples (e.g. P/E of a loss-making company) are skipped.
-    candidates = {
-        "peg": _lower_is_better(valuation.peg_ratio, worst=4.0, best=0.5),
-        "trailing_pe": _lower_is_better(valuation.trailing_pe, worst=60.0, best=8.0),
-        "forward_pe": _lower_is_better(valuation.forward_pe, worst=50.0, best=8.0),
-        "ev_to_ebitda": _lower_is_better(valuation.ev_to_ebitda, worst=30.0, best=6.0),
-        "price_to_sales": _lower_is_better(valuation.price_to_sales, worst=15.0, best=1.0),
-    }
-    components = [v for v in candidates.values() if v is not None]
+    # Negative or missing multiples (e.g. P/E of a loss-making company) are skipped,
+    # as are multiples the sector profile marks as not meaningful.
+    candidates = [
+        _multiple_score(valuation.peg_ratio, profile.peg),
+        _multiple_score(valuation.trailing_pe, profile.trailing_pe),
+        _multiple_score(valuation.forward_pe, profile.forward_pe),
+        _multiple_score(valuation.ev_to_ebitda, profile.ev_to_ebitda),
+        _multiple_score(valuation.price_to_sales, profile.price_to_sales),
+        _multiple_score(valuation.price_to_book, profile.price_to_book),
+    ]
+    components = [v for v in candidates if v is not None]
     if loss_making:
         components.append(0.0)  # no earnings to anchor the valuation on
     score = sum(components) / len(components) if components else 50.0
 
     detail = (
-        "Average of PEG, trailing P/E, forward P/E, EV/EBITDA and P/S scores "
-        "(lower multiple = higher score; missing or negative multiples are skipped)."
+        f"Average of the {profile.name} PEG, trailing P/E, forward P/E, EV/EBITDA, P/S "
+        "(and P/B where the sector uses it) scores; lower multiple = higher score; "
+        "missing, negative or sector-irrelevant multiples are skipped."
     )
     if loss_making:
         detail += " Company is loss-making, so an extra zero-score component is included."
@@ -167,7 +198,9 @@ def score_valuation(valuation: ValuationSnapshot, loss_making: bool = False) -> 
     )
 
 
-def score_debt(quarterly: list[QuarterMetrics]) -> CategoryResult:
+def score_debt(
+    quarterly: list[QuarterMetrics], profile: SectorProfile = GENERIC
+) -> CategoryResult:
     def latest(attr: str) -> float | None:
         return next((getattr(q, attr) for q in reversed(quarterly) if getattr(q, attr) is not None), None)
 
@@ -177,17 +210,19 @@ def score_debt(quarterly: list[QuarterMetrics]) -> CategoryResult:
     latest_coverage = latest("interest_coverage")
     latest_leverage = latest("debt_to_ebitda")
 
-    parts: list[tuple[float, float]] = []
-    if latest_de is not None:
-        # Negative equity (debt-funded buybacks, accumulated losses) is the worst case.
-        parts.append((0.0 if latest_de < 0 else _scale(latest_de, 3.0, 0.0), 0.40))
-    if latest_current is not None:
-        parts.append((_scale(latest_current, 0.5, 2.5), 0.20))
-    if latest_coverage is not None:
-        parts.append((_scale(latest_coverage, 1.5, 10.0), 0.20))
-    if latest_leverage is not None:
-        parts.append((0.0 if latest_leverage < 0 else _scale(latest_leverage, 4.0, 0.0), 0.20))
-    score = _weighted_average(parts)
+    def leverage_score(value: float | None, band: Band | None) -> float | None:
+        # Negative equity / negative EBITDA is the worst case, not a "low" ratio.
+        if value is not None and value < 0 and band is not None:
+            return 0.0
+        return _band_score(value, band)
+
+    candidates = [
+        (leverage_score(latest_de, profile.debt_to_equity), 0.40),
+        (_band_score(latest_current, profile.current_ratio), 0.20),
+        (_band_score(latest_coverage, profile.interest_coverage), 0.20),
+        (leverage_score(latest_leverage, profile.debt_to_ebitda), 0.20),
+    ]
+    score = _weighted_average([(sc, w) for sc, w in candidates if sc is not None])
 
     slope = linear_trend_slope(de_ratios) if len(de_ratios) >= 2 else None
     # Debt going up is deteriorating, so invert the raw slope's meaning.
@@ -203,19 +238,22 @@ def score_debt(quarterly: list[QuarterMetrics]) -> CategoryResult:
         trend=trend,
         metrics={
             "latest_debt_to_equity": r(latest_de),
-            "latest_current_ratio": r(latest_current),
-            "latest_interest_coverage": r(latest_coverage),
-            "latest_debt_to_ebitda": r(latest_leverage),
+            "latest_current_ratio": r(latest_current) if profile.current_ratio else None,
+            "latest_interest_coverage": r(latest_coverage) if profile.interest_coverage else None,
+            "latest_debt_to_ebitda": r(latest_leverage) if profile.debt_to_ebitda else None,
             "debt_to_equity_series": [round(d, 2) for d in de_ratios],
         },
-        detail="Weighted blend of debt/equity (40%), current ratio (20%), interest coverage "
-        "(20%) and debt/EBITDA (20%); missing inputs are skipped. Negative equity scores 0. "
-        "Trend is inverted so a shrinking debt/equity reads as Improving.",
+        detail=f"{profile.name} scale. Debt/equity (40%): {_num(profile.debt_to_equity)}. "
+        "Also current ratio (20%), interest coverage (20%) and debt/EBITDA (20%); inputs that are "
+        "missing or not meaningful for the sector show n/a and are skipped. Negative equity "
+        "scores 0. Trend is inverted so a shrinking debt/equity reads as Improving.",
     )
 
 
 def score_cash_flow(
-    quarterly: list[QuarterMetrics], ttm: TTMMetrics | None = None
+    quarterly: list[QuarterMetrics],
+    ttm: TTMMetrics | None = None,
+    profile: SectorProfile = GENERIC,
 ) -> CategoryResult:
     fcf_series = [q.free_cash_flow for q in quarterly]
     if ttm is not None:
@@ -225,7 +263,8 @@ def score_cash_flow(
         margin = fcf_margins[-1] if fcf_margins else None
         basis = "latest quarter"
 
-    margin_score = _scale(margin, -0.10, 0.25) if margin is not None else 50.0
+    margin_score = _band_score(margin, profile.fcf_margin)
+    margin_score = 50.0 if margin_score is None else margin_score
     slope = linear_trend_slope(fcf_series) if len(fcf_series) >= 2 else None
     # Normalize slope by average absolute FCF so the trend bonus is scale-free.
     avg_abs_fcf = sum(abs(v) for v in fcf_series) / len(fcf_series) if fcf_series else 0
@@ -234,16 +273,27 @@ def score_cash_flow(
 
     score = _clamp(margin_score + trend_bonus)
 
+    if profile.fcf_margin is None:
+        # Operating cash flow isn't comparable for this sector (e.g. banks), so
+        # neither the margin nor its trend says anything useful.
+        score = 50.0
+        detail = (f"Free cash flow isn't a meaningful yardstick for {profile.name}, "
+                  "so this category is scored neutral (50).")
+        trend = "Stable"
+    else:
+        detail = (f"Free cash flow margin on the {profile.name} scale ({_pct(profile.fcf_margin)}), "
+                  "adjusted by the normalized slope of the FCF series across recent quarters.")
+        trend = _trend_label(normalized_slope)
+
     return CategoryResult(
         name="Cash Flow Trends",
         score=score,
         grade=grade_for_score(score),
-        trend=_trend_label(normalized_slope),
+        trend=trend,
         metrics={
             "latest_fcf_margin_pct": round(margin * 100, 2) if margin is not None else None,
             "basis": basis,
             "free_cash_flow_series": [round(v, 0) for v in fcf_series],
         },
-        detail="Free cash flow margin, adjusted by the normalized slope of the "
-        "FCF series across recent quarters.",
+        detail=detail,
     )

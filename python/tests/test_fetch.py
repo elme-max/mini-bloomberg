@@ -56,6 +56,7 @@ class FakeTicker:
     def get_info(self):
         return {
             "longName": "Fake Corp",
+            "sector": "Technology",
             "trailingPE": 20.0,
             "forwardPE": 18.0,
             "pegRatio": 1.2,
@@ -78,6 +79,7 @@ def test_live_path_parses_statements(monkeypatch):
     assert snapshot.quarters[-1].capex == 8.0  # sign normalized
     assert snapshot.quarters[-1].interest_expense == 2.0
     assert [a.revenue for a in snapshot.annual] == [400.0, 480.0]
+    assert snapshot.sector == "Technology"
     assert snapshot.valuation.forward_pe == 18.0
     assert snapshot.valuation.ev_to_ebitda == 12.0
 
@@ -91,6 +93,7 @@ def test_live_path_scores_end_to_end(monkeypatch):
     assert 0 <= report.overall_score <= 100
     growth = next(c for c in report.categories if c.name == "Revenue Growth")
     assert growth.metrics["growth_basis"] == "latest quarter vs same quarter last year"
+    assert report.sector_profile == "Technology"
 
 
 def test_empty_statements_raise(monkeypatch):

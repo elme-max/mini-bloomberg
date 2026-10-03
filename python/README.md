@@ -23,6 +23,33 @@ Each category is scored 0-100 with a letter grade (A-F) and a trend
 overall score. Every score traces back to a specific metric and threshold —
 this is a transparent multi-factor model, not a black box.
 
+## Sector-aware scoring
+
+Companies are judged against thresholds for **their own sector** (Yahoo
+Finance's `sector` field), so a bank's leverage or a software firm's P/E isn't
+held to the same yardstick as an industrial's. Examples of what changes:
+
+- A debt/equity of 4 is alarming for a generic company but normal for a utility.
+- An 8% net margin is thin for software but healthy for a food producer.
+- **Financial Services** skips metrics that don't apply to banks (current
+  ratio, interest coverage, EBITDA multiples, FCF margin) and scores
+  price/book instead; **Real Estate** skips PEG and current ratio.
+- Unknown or missing sectors fall back to the original generic thresholds, and
+  the report says so (`Sector: unknown (generic thresholds, not sector-adjusted)`).
+
+Supported sectors: Technology, Communication Services, Healthcare, Financial
+Services, Consumer Cyclical, Consumer Defensive, Industrials, Energy,
+Utilities, Real Estate and Basic Materials (GICS-style names like
+"Financials" or "Consumer Staples" are accepted too).
+
+> **These bands are hand-picked rules of thumb, not statistically derived from
+> peer data.** Each is roughly "weak" and "strong" for a typical company in the
+> sector. Treat them as a sensible starting point; they live in
+> `stock_evolution_model/sectors.py` and are easy to edit. Tuning them against
+> a backtest would be the next step before relying on the scores.
+
+## Data and fallback behavior
+
 It fetches up to eight quarters (plus fiscal-year statements) via
 [`yfinance`](https://github.com/ranaroussi/yfinance), no API key required.
 
@@ -95,6 +122,7 @@ stock_evolution_model/
   demo_data.py   # deterministic per-symbol synthetic fundamentals (--demo only)
   fetch.py       # live fetch via yfinance; raises DataUnavailableError on failure
   metrics.py     # derived ratios, TTM figures, best-basis revenue growth, trend slope
+  sectors.py     # per-sector scoring bands (edit these to tune the model)
   scoring.py     # 0-100 heuristic scoring per category + letter grades
   model.py       # StockEvolutionModel orchestrator + text report formatting
   cli.py         # `python -m stock_evolution_model TICKER [...]`

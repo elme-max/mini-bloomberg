@@ -179,6 +179,7 @@ def fetch_fundamentals(symbol: str, demo: bool = False) -> FundamentalsSnapshot:
             valuation=_build_valuation(info),
             data_notes=[],
             annual=_fetch_annual(ticker),
+            sector=info.get("sector") or None,
         )
     except Exception as exc:  # noqa: BLE001
         raise DataUnavailableError(f"live data fetch failed for {symbol}: {exc}") from exc
