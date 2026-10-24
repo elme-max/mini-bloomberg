@@ -97,3 +97,29 @@ export interface InsightsResponse {
   generatedBy: "claude" | "heuristic";
   disclaimer: string;
 }
+
+// Output of the Python stock evolution model (python/stock_evolution_model),
+// kept in the model's own snake_case JSON shape.
+export type EvaluationTrend = "Improving" | "Stable" | "Deteriorating";
+
+export interface EvaluationCategory {
+  name: string;
+  score: number; // 0-100
+  grade: string; // A-F
+  trend: EvaluationTrend;
+  metrics: Record<string, number | string | boolean | null | number[]>;
+  detail: string;
+}
+
+export interface EvaluationReport {
+  symbol: string;
+  company_name: string;
+  is_demo_data: boolean;
+  data_notes: string[];
+  overall_score: number;
+  overall_grade: string;
+  overall_trend: EvaluationTrend;
+  sector: string | null;
+  sector_profile: string;
+  categories: EvaluationCategory[];
+}

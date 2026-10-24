@@ -121,7 +121,9 @@ def test_financials_cash_flow_is_neutral():
     result = score_cash_flow(metrics, ttm, profile_for("Financial Services"))
     assert result.score == 50.0
     assert result.trend == "Stable"
-    assert score_cash_flow(metrics, ttm, GENERIC).score != 50.0
+    assert result.metrics["applicable"] is False
+    generic = score_cash_flow(metrics, ttm, GENERIC)
+    assert generic.score != 50.0 and generic.metrics["applicable"] is True
 
 
 def test_financials_use_price_to_book_and_skip_ev_ebitda():

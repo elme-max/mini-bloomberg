@@ -5,6 +5,7 @@ import RatioGrid from "@/components/RatioGrid";
 import NewsFeed from "@/components/NewsFeed";
 import EarningsPanel from "@/components/EarningsPanel";
 import InsightPanel from "@/components/InsightPanel";
+import EvaluationPanel from "@/components/EvaluationPanel";
 
 export const revalidate = 60;
 
@@ -73,6 +74,7 @@ export default async function StockPage({
         </div>
         <div className="space-y-4">
           <InsightPanel symbol={symbol} />
+          <EvaluationPanel symbol={symbol} demo={quote.source === "demo"} />
           <NewsFeed news={news} />
         </div>
       </div>

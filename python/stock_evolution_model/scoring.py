@@ -307,6 +307,9 @@ def score_cash_flow(
             "latest_fcf_margin_pct": round(margin * 100, 2) if margin is not None else None,
             "basis": basis,
             "free_cash_flow_series": [round(v, 0) for v in fcf_series],
+            # False when the sector profile says FCF isn't a meaningful yardstick (the
+            # neutral 50 is a placeholder, not a judgement).
+            "applicable": profile.fcf_margin is not None,
         },
         detail=detail,
     )
