@@ -110,10 +110,11 @@ def _build_periods(income, balance, cashflow, limit: int) -> list[QuarterFundame
 
 def _build_valuation(info: dict) -> ValuationSnapshot:
     def g(*keys) -> Optional[float]:
+        # NaN, infinity and booleans are rejected: a NaN P/E would otherwise score as "cheapest".
         for key in keys:
-            value = info.get(key)
-            if isinstance(value, (int, float)):
-                return float(value)
+            value = _number(info, key)
+            if value is not None:
+                return value
         return None
 
     return ValuationSnapshot(
